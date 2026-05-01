@@ -1,0 +1,73 @@
+# LD-JEPA: Spatiotemporal Masking Config
+# Mask random tubes across space AND time (VideoMAE-style)
+# Good for: richer representation, harder pretext task
+
+experiment:
+  name: "ldjjepa_spatiotemporal"
+  seed: 42
+  log_dir: "/scratch/${NETID}/logs/ldjjepa_spatiotemporal"
+  checkpoint_dir: "/scratch/${NETID}/checkpoints/ldjjepa_spatiotemporal"
+
+data:
+  data_root: "/scratch/${NETID}/data/active_matter"
+  num_channels: 11
+  num_frames: 16
+  spatial_size: 224
+  num_workers: 8
+  pin_memory: true
+
+masking:
+  strategy: "spatiotemporal"
+  mask_ratio: 0.75              # mask 75% of all spatiotemporal tokens (VideoMAE default)
+  tube_length: 2                # temporal extent of each masked tube (in frames)
+  # tubes = same spatial patch masked across `tube_length` consecutive frames
+  # prevents trivial copy-from-adjacent-frame solution
+  num_target_blocks: 4          # number of spatiotemporal block targets (JEPA-style)
+  target_block_scale: [0.15, 0.2]   # fraction of total tokens per target block
+  aspect_ratio: [0.75, 1.5]    # spatial aspect ratio of target blocks
+  context_mask_ratio: 0.15     # lightly mask context too (harder task)
+
+model:
+  patch_size: 16
+  embed_dim: 384
+  encoder_depth: 6
+  encoder_heads: 6
+  encoder_mlp_ratio: 4.0
+  dropout: 0.0
+  use_factored_attention: true
+
+  ema_momentum: 0.996
+
+  # Predictor type: "diffusion" (proposed) or "mlp" (ablation baseline)
+  predictor_type: "diffusion"
+
+  diffusion_steps: 100
+  diffusion_schedule: "cosine"
+  predictor_dim: 384
+  predictor_depth: 4
+  predictor_heads: 6
+  conditioning: "cross_attention"
+  ddim_steps: 10
+
+training:
+  epochs: 100
+  batch_size: 8
+  learning_rate: 1.5e-4
+  lr_schedule: "cosine"
+  warmup_epochs: 10
+  weight_decay: 0.05
+  grad_clip: 1.0
+  mixed_precision: true
+  gradient_checkpointing: false
+
+  use_vicreg_aux: true
+  vicreg_lambda: 25.0
+  vicreg_mu: 25.0
+  vicreg_nu: 1.0
+  vicreg_aux_weight: 0.1
+
+evaluation:
+  eval_every_epochs: 10
+  knn_k: 20
+  knn_metric: "cosine"
+  embedding_pool: "mean"

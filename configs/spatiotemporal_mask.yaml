@@ -1,0 +1,72 @@
+# LD-JEPA: Temporal Masking Config
+# Context = first K frames, predict remaining frames
+# Good for: causal forecasting, aligns with physical intuition
+
+experiment:
+  name: "ldjjepa_temporal"
+  seed: 42
+  log_dir: "/scratch/${NETID}/logs/ldjjepa_temporal"
+  checkpoint_dir: "/scratch/${NETID}/checkpoints/ldjjepa_temporal"
+
+data:
+  data_root: "/scratch/${NETID}/data/active_matter"
+  num_channels: 11          # all physical fields
+  num_frames: 16
+  spatial_size: 224
+  num_workers: 8
+  pin_memory: true
+
+masking:
+  strategy: "temporal"
+  num_context_frames: 8     # first 8 frames as context
+  num_target_frames: 8      # predict last 8 frames
+  # ablation: try 4/12, 6/10, 8/8 splits
+
+model:
+  # Encoder (ViT-Small adapted)
+  patch_size: 16            # 224/16 = 14 patches per dim → 196 spatial patches
+  embed_dim: 384
+  encoder_depth: 6
+  encoder_heads: 6
+  encoder_mlp_ratio: 4.0
+  dropout: 0.0
+  use_factored_attention: true   # spatial-then-temporal for memory efficiency
+
+  # EMA target encoder
+  ema_momentum: 0.996       # start, will be cosine-annealed to 0.9999
+
+  # Predictor type: "diffusion" (proposed) or "mlp" (ablation baseline)
+  predictor_type: "diffusion"
+
+  # Latent Diffusion Predictor
+  diffusion_steps: 100          # T for DDPM
+  diffusion_schedule: "cosine"  # cosine noise schedule
+  predictor_dim: 384            # matches embed_dim
+  predictor_depth: 4            # lightweight denoising transformer
+  predictor_heads: 6
+  conditioning: "cross_attention"  # how context embeddings condition the denoiser
+  ddim_steps: 10                # fast sampling at eval time
+
+training:
+  epochs: 100
+  batch_size: 8             # per GPU
+  learning_rate: 1.5e-4
+  lr_schedule: "cosine"
+  warmup_epochs: 10
+  weight_decay: 0.05
+  grad_clip: 1.0
+  mixed_precision: true     # bf16 on A100
+  gradient_checkpointing: false  # not needed on A100 40GB at bs=8
+
+  # VICReg auxiliary to prevent collapse
+  use_vicreg_aux: true
+  vicreg_lambda: 25.0       # invariance weight
+  vicreg_mu: 25.0           # variance weight
+  vicreg_nu: 1.0            # covariance weight
+  vicreg_aux_weight: 0.1    # scale relative to diffusion loss
+
+evaluation:
+  eval_every_epochs: 10
+  knn_k: 20
+  knn_metric: "cosine"
+  embedding_pool: "mean"    # mean pool over time+space tokens
